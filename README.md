@@ -6,6 +6,21 @@ sobre su cámara y lo orbita. Ubuntu 24.04, ROS 2 Jazzy y Gazebo Harmonic.
 Cadena completa: imagen de la cámara → detección (YOLO26: `fuego`, `humo`) → estimación del foco
 → referencia → control (PD o super-twisting adaptativo con discretización implícita).
 
+## Así funciona
+
+![Demostración: el dron busca, detecta el fuego con YOLO26 y orbita el foco](docs/demo_busqueda_yolo.gif)
+
+Video completo (cámara del dron con las detecciones de YOLO, al doble de velocidad):
+[docs/demo_busqueda_yolo.mp4](docs/demo_busqueda_yolo.mp4)
+
+| Patrulla | Aproximación | Órbita sobre el foco |
+|---|---|---|
+| ![Patrulla](docs/gazebo_patrulla.jpg) | ![Aproximación](docs/gazebo_aproximacion.jpg) | ![Órbita](docs/gazebo_orbita.jpg) |
+
+Cámara del dron: YOLO26 detecta el fuego (confianza 0.93, 16 ms por imagen en una RTX 5060 Ti):
+
+![Detección de YOLO](docs/yolo_deteccion.png)
+
 ## Contenido
 
 - `src/cuadrirotor_sim`: mundos (`incendio`, `bosque`), vehículos (cuadrirotor genérico y Tarot 650),
