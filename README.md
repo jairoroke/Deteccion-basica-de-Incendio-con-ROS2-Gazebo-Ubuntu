@@ -19,7 +19,7 @@ Cadena completa: imagen de la cámara → detección (YOLO26: `fuego`, `humo`) �
    `ros-jazzy-actuator-msgs ros-jazzy-vision-msgs`.
 2. Clonar y compilar:
 
-       git clone https://github.com/<usuario>/<este-repositorio>.git ~/ros2_ws
+       git clone https://github.com/jairoroke/Deteccion-basica-de-Incendio-con-ROS2-Gazebo-Ubuntu.git ~/ros2_ws
        cd ~/ros2_ws && colcon build --symlink-install && source install/setup.bash
 
 3. Entorno de YOLO (con `--system-site-packages` para ver ROS 2):
