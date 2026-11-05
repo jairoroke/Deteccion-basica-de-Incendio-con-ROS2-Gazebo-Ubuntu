@@ -1,7 +1,7 @@
 """Marcado de las detecciones de YOLO sobre la imagen de la cámara.
 
-No depende de ROS: lo usa detector_yolo y puede probarse por separado.
-Una detección es (clase, confianza, (x0, y0, x1, y1)) en píxeles.
+No depende de ROS: lo usa detector_yolo y puede probarse por separado. Una
+detección es (clase, confianza, (x0, y0, x1, y1)) en píxeles (ver cajas.py).
 
 Sobre la imagen se dibuja:
   - cada objeto con su caja y una etiqueta con la clase y la confianza;
@@ -12,32 +12,10 @@ Sobre la imagen se dibuja:
 """
 import cv2
 
+from cuadrirotor_sim.cajas import objetivo
+
 COLORES = {'fuego': (255, 60, 0), 'humo': (0, 200, 255)}   # RGB
 FUENTE = cv2.FONT_HERSHEY_SIMPLEX
-
-
-def detecciones_de(resultado, nombres, umbral, umbral_defecto=0.35):
-    """Detecciones de un resultado de ultralytics, filtradas con el umbral de cada clase.
-
-    umbral: {clase: confianza mínima}; las clases que no aparecen usan umbral_defecto.
-    """
-    salida = []
-    cajas = resultado.boxes
-    for caja, clase, conf in zip(cajas.xyxy.cpu().numpy(), cajas.cls.cpu().numpy(),
-                                 cajas.conf.cpu().numpy()):
-        nombre = nombres[int(clase)]
-        if conf >= umbral.get(nombre, umbral_defecto):
-            salida.append((nombre, float(conf), tuple(float(c) for c in caja)))
-    return salida
-
-
-def objetivo(detecciones):
-    """Detección principal: el fuego más confiable o, si no hay, el humo más confiable."""
-    for clase in ('fuego', 'humo'):
-        candidatas = [d for d in detecciones if d[0] == clase]
-        if candidatas:
-            return max(candidatas, key=lambda d: d[1])
-    return None
 
 
 def _etiqueta(img, texto, x, y, color):

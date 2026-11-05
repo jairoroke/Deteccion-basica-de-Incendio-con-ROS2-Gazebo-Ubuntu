@@ -116,10 +116,13 @@ con STA; con viento, 0.095 m con PD y 0.047 m con STA (el tarot650: 0.119 m y 0.
 
 El dron sale lejos del foco, patrulla a 15 m y, al ver humo, se dirige hacia él. Cada detección
 de llamas da un rayo de cámara que se corta con el plano a 1.1 m; la mediana de esos cortes es el
-foco. Una vez estimado, se descartan los cortes a más de 4 m (falsos positivos: en el mundo
-`incendio` el modelo confunde a veces los árboles con fuego). Luego baja y orbita el foco.
+foco. Una vez estimado, se descartan los cortes a más de 4 m. Tampoco se usan las cajas
+recortadas por el borde de la imagen: al acercarse a 15 m de altura las llamas salen por abajo
+del cuadro, el centro de la caja sube y el corte se iría más allá del foco (antes la estimación se
+corría así hasta 1.2 m). Luego baja y orbita el foco.
 
-Verificado (Tarot 650, mundo `incendio`): foco estimado (8.4, 5.4) frente al real (8, 5).
+Verificado con el launch completo de ROS 2 (Tarot 650 Pro, mundo `incendio`, `controlador:=sta`,
+YOLO en CPU): foco estimado (7.9, 4.9) al iniciar el descenso, frente al real (8, 5).
 
 ## Pruebas
 
