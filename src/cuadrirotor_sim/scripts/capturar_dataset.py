@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Genera un dataset de detección de incendios (formato YOLO) desde Gazebo.
 
-Abre el mundo 'bosque' sin dron, con una cámara de la misma óptica que la del
-dron (640x480, campo horizontal 1.3 rad), y repite: mueve el foco de incendio y
+Abre el mundo 'bosque' (o 'incendio', con --mundo incendio) sin dron, con una
+cámara de la misma óptica que la del dron (640x480, campo horizontal 1.3 rad),
+y repite: mueve el foco de incendio y
 la cámara a posiciones aleatorias, toma una imagen y la etiqueta proyectando el
 volumen de las llamas ('fuego') y de la columna de humo ('humo') con el modelo
 de cámara estenopeica. Los puntos del volumen que tapan las copas de los
@@ -12,7 +13,11 @@ Requiere Gazebo corriendo con el mundo que genera este mismo script:
     python3 scripts/capturar_dataset.py preparar /tmp/datos/bosque.sdf /tmp/cuadrirotor_sim_$UID/modelos
     GZ_SIM_RESOURCE_PATH=/tmp/datos/modelos_captura:.../models gz sim -s -r --headless-rendering /tmp/datos/bosque.sdf
     python3 scripts/capturar_dataset.py capturar ~/datasets/incendio 2500
+
+Para el mundo 'incendio' se agrega --mundo incendio a 'preparar' y a 'capturar'
+(y --semilla N para otra secuencia de posiciones).
 """
+import argparse
 import math
 import os
 import random
@@ -35,7 +40,8 @@ CLASES = ['fuego', 'humo']
 FOCO_REAL = (8.0, 5.0)
 
 # Copas de los árboles como cilindros: radio, altura inferior y superior [m].
-COPA = {'roble': (4.0, 1.5, 6.5), 'pino': (1.4, 0.8, 5.1)}
+# 'arbol' es el árbol simple del mundo incendio (esfera de 1.1 m a 2.6 m).
+COPA = {'roble': (4.0, 1.5, 6.5), 'pino': (1.4, 0.8, 5.1), 'arbol': (1.1, 1.5, 3.7)}
 
 CAMARA_SDF = f"""
     <model name="camara_datos">
@@ -58,20 +64,22 @@ CAMARA_SDF = f"""
 """
 
 
-def arboles():
-    s = open(os.path.join(RAIZ, 'worlds', 'bosque.sdf')).read()
+def arboles(mundo='bosque'):
+    s = open(os.path.join(RAIZ, 'worlds', f'{mundo}.sdf')).read()
     return [(e, float(x), float(y)) for e, x, y in re.findall(
-        r'model://(roble|pino)</uri>\s*<name>[^<]+</name>\s*<pose>([-\d.]+) ([-\d.]+)', s)]
+        r'model://(roble|pino)</uri>\s*<name>[^<]+</name>\s*<pose>([-\d.]+) ([-\d.]+)', s)] + \
+        [('arbol', float(x), float(y)) for x, y in re.findall(
+            r'<model name="arbol_\d+"><static>true</static><pose>([-\d.]+) ([-\d.]+)', s)]
 
 
-def preparar(salida, modelos_fuego):
-    """Mundo de captura: el bosque con la cámara y un foco que se pueden mover.
+def preparar(salida, modelos_fuego, mundo='bosque'):
+    """Mundo de captura: el mundo con la cámara y un foco que se pueden mover.
 
     Gazebo no mueve modelos estáticos con set_pose, así que la cámara y la copia
     del foco ('foco_movil', en el directorio de salida) son dinámicos sin gravedad.
     """
-    s = open(os.path.join(RAIZ, 'worlds', 'bosque.sdf')).read()
-    s = s.replace('<world name="bosque">', '<world name="datos">')
+    s = open(os.path.join(RAIZ, 'worlds', f'{mundo}.sdf')).read()
+    s = s.replace(f'<world name="{mundo}">', '<world name="datos">')
     s = s.replace('<uri>model://foco_incendio</uri>', '<uri>model://foco_movil</uri>')
     s = s.replace('  </world>', CAMARA_SDF + '  </world>')
     with open(salida, 'w') as f:
@@ -208,9 +216,9 @@ def posicion_foco(rnd, troncos):
             return (x, y)
 
 
-def capturar(salida, total, semilla=11):
+def capturar(salida, total, semilla=11, mundo='bosque'):
     rnd = random.Random(semilla)
-    troncos = arboles()
+    troncos = arboles(mundo)
     for p in ('images/train', 'images/val', 'labels/train', 'labels/val'):
         os.makedirs(os.path.join(salida, p), exist_ok=True)
     cap = Capturador()
@@ -258,7 +266,19 @@ def capturar(salida, total, semilla=11):
 
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'preparar':
-        preparar(sys.argv[2], sys.argv[3])
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest='orden', required=True)
+    a = sub.add_parser('preparar')
+    a.add_argument('salida')
+    a.add_argument('modelos_fuego')
+    b = sub.add_parser('capturar')
+    b.add_argument('salida')
+    b.add_argument('total', type=int)
+    b.add_argument('--semilla', type=int, default=11)
+    for p in (a, b):
+        p.add_argument('--mundo', default='bosque', choices=['bosque', 'incendio'])
+    args = ap.parse_args()
+    if args.orden == 'preparar':
+        preparar(args.salida, args.modelos_fuego, args.mundo)
     else:
-        capturar(sys.argv[2], int(sys.argv[3]))
+        capturar(args.salida, args.total, args.semilla, args.mundo)

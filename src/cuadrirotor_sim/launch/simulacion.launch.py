@@ -1,7 +1,15 @@
 """Lanza Gazebo con el escenario del incendio, el puente ROS 2 y el controlador.
 
+El vehículo por omisión es el Tarot 650 Pro (vehiculo:=tarot650pro); los otros
+son el Tarot Ironman 650 con su equipo original (tarot650) y el cuadrirrotor
+genérico en "+" (cuadrirotor).
+
+El detector YOLO26 corre en toda misión si está instalado (yolo:=auto): en el
+panel "Detección YOLO" encuadra y etiqueta el fuego y el humo. yolo:=false lo apaga.
+
 Ejemplos:
   ros2 launch cuadrirotor_sim simulacion.launch.py
+  ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=cuadrirotor
   ros2 launch cuadrirotor_sim simulacion.launch.py mision:=orbita viento:=true
   ros2 launch cuadrirotor_sim simulacion.launch.py gui:=false csv:=/tmp/corrida.csv
   ros2 launch cuadrirotor_sim simulacion.launch.py controlador:=sta esquema:=implicito
@@ -9,6 +17,7 @@ Ejemplos:
   ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque
   ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque controlador:=ardupilot mision:=orbita
   ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque controlador:=sta mision:=busqueda
+  ros2 launch cuadrirotor_sim simulacion.launch.py mundo:=incendio controlador:=sta mision:=busqueda
 
 Con controlador:=ardupilot el dron lo pilota ArduCopter SITL (~/ardupilot, o la
 ruta de ARDUPILOT_DIR) con el Python de ~/venv-ardupilot (o ARDUPILOT_VENV), y
@@ -26,8 +35,8 @@ from ament_index_python.packages import (PackageNotFoundError, get_package_prefi
                                           get_package_share_directory)
 from launch import LaunchDescription
 from launch.actions import (AppendEnvironmentVariable, DeclareLaunchArgument, ExecuteProcess,
-                            IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler,
-                            SetEnvironmentVariable)
+                            IncludeLaunchDescription, LogInfo, OpaqueFunction, RegisterEventHandler,
+                            SetEnvironmentVariable, SetLaunchConfiguration)
 from launch.conditions import IfCondition
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -99,30 +108,64 @@ def aparecer_vehiculo(context, share):
                    '-name', 'cuadrirotor', '-x', x0 or '0', '-y', y0 or '0', '-z', str(z0)])]
 
 
+def rutas_yolo(context, share):
+    """Python del entorno de YOLO, modelo y, si algo falta, la razón."""
+    venv = os.path.expanduser(os.environ.get('YOLO_VENV', '~/.venvs/yolo'))
+    python = os.path.join(venv, 'bin', 'python3')
+    modelo = LaunchConfiguration('modelo_yolo').perform(context) or \
+        os.path.join(share, 'yolo', 'incendio_yolo26n.pt')
+    falta = next((f'No se encontró el {que}: {ruta}'
+                  for ruta, que in ((python, 'entorno de Python de YOLO'), (modelo, 'modelo YOLO'))
+                  if not os.path.exists(ruta)), None)
+    return python, modelo, falta
+
+
+def decidir_yolo(context, share):
+    """Decide si corre el detector YOLO26 (y con él el panel "Detección YOLO").
+
+    yolo:=auto lo corre en cualquier misión si están el entorno y el modelo; la
+    búsqueda lo necesita siempre.
+    """
+    modo = LaunchConfiguration('yolo').perform(context)
+    if modo not in ('auto', 'true', 'false'):
+        raise RuntimeError(f"yolo debe ser auto, true o false, no {modo!r}")
+    _, _, falta = rutas_yolo(context, share)
+    if LaunchConfiguration('mision').perform(context) == 'busqueda' or modo == 'true':
+        if falta:
+            raise RuntimeError(falta)
+        activo = True
+    else:
+        activo = modo == 'auto' and not falta
+    acciones = [SetLaunchConfiguration('yolo_activo', 'true' if activo else 'false')]
+    if modo == 'auto' and falta:
+        acciones.append(LogInfo(msg=f'Sin detector YOLO26 (la cámara se muestra sin marcas). {falta}'))
+    return acciones
+
+
+def detector(context, share):
+    """Detector YOLO26: encuadra y etiqueta el fuego y el humo en la imagen de la cámara."""
+    if LaunchConfiguration('yolo_activo').perform(context) != 'true':
+        return []
+    python, modelo, _ = rutas_yolo(context, share)
+    return [ExecuteProcess(
+        cmd=[python, '-m', 'cuadrirotor_sim.detector_yolo', '--ros-args',
+             '-p', 'use_sim_time:=true', '-p', f'modelo:={modelo}'],
+        output='screen', name='detector_yolo')]
+
+
 def busqueda(context, share):
-    """Detector YOLO26 y planificador de la búsqueda del incendio."""
+    """Planificador de la búsqueda del incendio (el detector lo lanza detector())."""
     if LaunchConfiguration('mision').perform(context) != 'busqueda':
         return []
     if LaunchConfiguration('controlador').perform(context) == 'ardupilot':
         raise RuntimeError('La misión de búsqueda funciona con controlador:=pd o sta')
     vehiculo = LaunchConfiguration('vehiculo').perform(context)
-    venv = os.path.expanduser(os.environ.get('YOLO_VENV', '~/.venvs/yolo'))
-    python = os.path.join(venv, 'bin', 'python3')
-    modelo = LaunchConfiguration('modelo_yolo').perform(context) or \
-        os.path.join(share, 'yolo', 'incendio_yolo26n.pt')
-    for ruta, que in ((python, 'entorno de Python de YOLO'), (modelo, 'modelo YOLO')):
-        if not os.path.exists(ruta):
-            raise RuntimeError(f'No se encontró el {que}: {ruta}')
-    detector = ExecuteProcess(
-        cmd=[python, '-m', 'cuadrirotor_sim.detector_yolo', '--ros-args',
-             '-p', 'use_sim_time:=true', '-p', f'modelo:={modelo}'],
-        output='screen', name='detector_yolo')
     planificador = Node(
         package='cuadrirotor_sim', executable='busqueda_incendio', output='screen',
         parameters=[os.path.join(share, 'config', 'parametros.yaml'),
                     os.path.join(share, 'config', f'vehiculo_{vehiculo}.yaml'),
                     {'use_sim_time': True}])
-    return [detector, planificador]
+    return [planificador]
 
 
 def ardupilot(context, share):
@@ -204,9 +247,9 @@ def generate_launch_description():
 
     vehiculo_yaml = [os.path.join(share, 'config', 'vehiculo_'), LaunchConfiguration('vehiculo'), '.yaml']
     gui = LaunchConfiguration('gui')
-    # Ventana: panel "Detección YOLO" en la búsqueda; "Cámara del dron" en las demás.
+    # Ventana: panel "Detección YOLO" si corre el detector; si no, "Cámara del dron".
     ventana = PythonExpression(["'" + os.path.join(share, 'config', 'gazebo_gui') + "' + ('_yolo' if '",
-                                LaunchConfiguration('mision'), "' == 'busqueda' else '') + '.config'"])
+                                LaunchConfiguration('yolo_activo'), "' == 'true' else '') + '.config'"])
     gz_args = PythonExpression([
         "'-r ' + ('--gui-config ' + '", ventana, "' + ' ' if '", gui, "' == 'true' else '-s --headless-rendering ') + '",
         *mundo, "'"])
@@ -246,7 +289,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('mundo', default_value='incendio', description='incendio | bosque'),
-        DeclareLaunchArgument('vehiculo', default_value='cuadrirotor', description='cuadrirotor | tarot650'),
+        DeclareLaunchArgument('vehiculo', default_value='tarot650pro',
+                              description='tarot650pro | tarot650 | cuadrirotor'),
         DeclareLaunchArgument('gui', default_value='true', description='Mostrar la interfaz de Gazebo'),
         DeclareLaunchArgument('controlador', default_value='pd', description='pd | sta | ardupilot | ninguno (para lanzarlo aparte con ros2 run)'),
         DeclareLaunchArgument('esquema', default_value='implicito',
@@ -256,6 +300,9 @@ def generate_launch_description():
         DeclareLaunchArgument('x0', default_value='', description='Posición inicial x [m]'),
         DeclareLaunchArgument('y0', default_value='', description='Posición inicial y [m]'),
         DeclareLaunchArgument('modelo_yolo', default_value='', description='Pesos de YOLO (.pt)'),
+        DeclareLaunchArgument('yolo', default_value='auto',
+                              description='auto | true | false: detector YOLO26 que encuadra el fuego y el '
+                                          'humo en la cámara (auto: en toda misión si está instalado)'),
         DeclareLaunchArgument('Ts', default_value='0.005', description='Periodo de muestreo [s]'),
         DeclareLaunchArgument('viento', default_value='false', description='Aplicar perturbación de viento'),
         DeclareLaunchArgument('csv', default_value='', description='Ruta del CSV de registro'),
@@ -264,7 +311,9 @@ def generate_launch_description():
         *entorno_egl,
         *ruta_plugin_ardupilot(),
         RegisterEventHandler(OnShutdown(on_shutdown=terminar_restos)),
+        OpaqueFunction(function=decidir_yolo, args=[share]),   # antes de abrir la ventana
         gazebo, OpaqueFunction(function=aparecer_vehiculo, args=[share]), puente, controlador, viento,
         OpaqueFunction(function=ardupilot, args=[share]),
+        OpaqueFunction(function=detector, args=[share]),
         OpaqueFunction(function=busqueda, args=[share]),
     ])

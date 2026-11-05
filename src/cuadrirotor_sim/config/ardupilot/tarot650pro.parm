@@ -1,0 +1,26 @@
+# Parámetros de ArduCopter para el modelo tarot650pro_ardupilot (se cargan sobre
+# Tools/autotest/default_params/gazebo-iris.parm).
+# Quad en "X".
+FRAME_CLASS     1
+FRAME_TYPE      1
+# Salidas 1000-2000 us -> 0-620 rad/s lineal; el empuje crece con w^2, así que
+# la curva de empuje es cuadrática pura.
+MOT_PWM_MIN     1000
+MOT_PWM_MAX     2000
+MOT_THST_EXPO   1.0
+MOT_SPIN_ARM    0.08
+MOT_SPIN_MIN    0.12
+# Vuelo estacionario: (325/620)^2 = 0.27 del empuje máximo (2.74 kg).
+MOT_THST_HOVER  0.27
+MOT_HOVER_LEARN 2
+# Ganancias de tasa del tarot650 escaladas por I / (brazo * empuje máximo):
+# x 1.13 en alabeo, x 1.34 en cabeceo (batería y gimbal alargan la masa en x)
+# y x 1.03 en guiñada.
+ATC_RAT_RLL_P   0.09
+ATC_RAT_RLL_I   0.09
+ATC_RAT_RLL_D   0.0023
+ATC_RAT_PIT_P   0.107
+ATC_RAT_PIT_I   0.107
+ATC_RAT_PIT_D   0.0027
+ATC_RAT_YAW_P   0.2
+ATC_RAT_YAW_I   0.02

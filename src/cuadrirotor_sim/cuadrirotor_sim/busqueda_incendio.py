@@ -21,6 +21,8 @@ Estimación del foco:
   - Con humo ('humo'): la columna es vertical sobre el foco, así que cada
     detección da un rumbo; con rumbos desde puntos distintos se triangula por
     mínimos cuadrados.
+  - Las cajas recortadas por el borde de la imagen no se usan para ubicar el
+    foco (su centro no es el del objeto); sí cuentan para confirmar la detección.
 """
 from collections import deque
 import math
@@ -34,6 +36,7 @@ from std_msgs.msg import Empty, String
 from trajectory_msgs.msg import MultiDOFJointTrajectoryPoint
 from vision_msgs.msg import Detection2DArray
 
+from cuadrirotor_sim.cajas import toca_borde
 from cuadrirotor_sim.dinamica import envolver, quat_a_rot
 
 RUTA = [-35.0, -30.0, 45.0, -30.0, 45.0, -10.0, -35.0, -10.0,
@@ -124,7 +127,13 @@ class BusquedaIncendio(Node):
                 continue
             c = d.bbox.center.position
             o, r = self._rayo(p, R, c.x, c.y)
-            if h.class_id == 'fuego' and r[2] < -0.05:
+            # Una caja recortada por el borde de la imagen no tiene el centro del
+            # objeto: cuenta como vista, pero no se usa para ubicar el foco (al
+            # acercarse, las llamas salen por abajo y el corte se iría más allá).
+            bordes = toca_borde((c.x - d.bbox.size_x / 2, c.y - d.bbox.size_y / 2,
+                                 c.x + d.bbox.size_x / 2, c.y + d.bbox.size_y / 2),
+                                self.v['camara_ancho'], self.v['camara_alto'])
+            if h.class_id == 'fuego' and r[2] < -0.05 and not bordes:
                 s = (1.1 - o[2]) / r[2]
                 corte = (o + s * r)[:2]
                 # Compuerta: con un foco ya estimado por llamas, un corte a mas de 4 m
@@ -134,7 +143,9 @@ class BusquedaIncendio(Node):
                     continue
                 self.cortes_fuego.append(corte)
             elif h.class_id == 'humo':
-                self.rumbos_humo.append((o[:2].copy(), math.atan2(r[1], r[0])))
+                # Para el rumbo basta la posición horizontal de la caja.
+                if not bordes & {'izq', 'der'}:
+                    self.rumbos_humo.append((o[:2].copy(), math.atan2(r[1], r[0])))
                 self.az_humo = math.atan2(r[1], r[0])
                 self.t_humo = self._ahora()
             vistos.add(h.class_id)
