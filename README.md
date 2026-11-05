@@ -23,9 +23,9 @@ Cámara del dron: YOLO26 detecta el fuego (confianza 0.93, 16 ms por imagen en u
 
 ## Contenido
 
-- `src/cuadrirotor_sim`: mundos (`incendio`, `bosque`), vehículos (cuadrirotor genérico y Tarot 650),
-  controladores PD y STA, detector YOLO (`yolo/incendio_yolo26n.pt`), planificador de búsqueda,
-  viento y launch.
+- `src/cuadrirotor_sim`: mundos (`incendio`, `bosque`), vehículos (Tarot 650 Pro, Tarot Ironman 650
+  y cuadrirotor genérico), controladores PD y STA, detector YOLO (`yolo/incendio_yolo26n.pt`),
+  planificador de búsqueda, viento y launch.
 - `src/cuadrirotor_gz_plugins`: sistemas de Gazebo (`FuerzaViento`, `ComandosMotores`).
 
 ## Instalar
@@ -57,14 +57,34 @@ las cajas de fuego y humo):
 
 Otras:
 
-    ros2 launch cuadrirotor_sim simulacion.launch.py                                   # hover a 3 m
+    ros2 launch cuadrirotor_sim simulacion.launch.py                                   # Tarot 650 Pro, hover a 3 m
     ros2 launch cuadrirotor_sim simulacion.launch.py controlador:=sta mision:=orbita viento:=true
     ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque controlador:=sta mision:=busqueda
+    ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=cuadrirotor            # cuadrirrotor genérico
 
-Argumentos: `mundo` (incendio|bosque), `vehiculo` (cuadrirotor|tarot650), `controlador`
-(pd|sta|ardupilot|ninguno), `mision` (hover|orbita|busqueda), `viento`, `gui`, `csv`.
-`controlador:=ardupilot` requiere ArduCopter SITL en `~/ardupilot` y el plugin `ardupilot_gazebo`;
-la búsqueda con YOLO funciona con `pd` o `sta`.
+Argumentos: `mundo` (incendio|bosque), `vehiculo` (tarot650pro|tarot650|cuadrirotor; por omisión
+`tarot650pro`), `controlador` (pd|sta|ardupilot|ninguno), `mision` (hover|orbita|busqueda), `viento`,
+`gui`, `csv`. `controlador:=ardupilot` requiere ArduCopter SITL en `~/ardupilot` y el plugin
+`ardupilot_gazebo`; la búsqueda con YOLO funciona con `pd` o `sta`.
+
+## Vehículos
+
+| `vehiculo` | Qué es | Masa |
+|---|---|---|
+| `tarot650pro` (por omisión) | Armazón Tarot Ironman 650 con motores Tarot 4114/320KV a 6S, hélices 1555, batería 6S 8000 mAh y gimbal T4-3D con cámara | 2.74 kg |
+| `tarot650` | Tarot Ironman 650 con motores T-Motor MN3508 y hélices de 15" | 2.2 kg |
+| `cuadrirotor` | Cuadrirrotor genérico en "+" (cuerpo azul) | 1.5 kg |
+
+Los dos Tarot usan las mallas del CAD del Ironman 650; el 650 Pro agrega la batería y el gimbal
+bajo las placas, y su cámara va en el gimbal. Su masa, centro de masa e inercia salen de un
+presupuesto de piezas (`PIEZAS_TAROT650PRO` en `scripts/generar_modelo.py`) con los datos del
+fabricante para el armazón, los motores y el gimbal; el resto son valores típicos supuestos. Los
+modelos y `config/vehiculo_<vehiculo>.yaml` se generan con `python3 scripts/generar_modelo.py`.
+
+Verificado en Gazebo Harmonic con las leyes de control de `controlador_pd` y `controlador_sta`
+(STA implícito, Ts = 5 ms) sobre gz-transport, sin ROS: el tarot650pro, en el mundo `incendio` y en
+la órbita de 4 m alrededor del foco, sigue la referencia con error RMS de 0.013 m con PD y 0.041 m
+con STA; con viento, 0.095 m con PD y 0.047 m con STA (el tarot650: 0.119 m y 0.048 m).
 
 ## Cómo encuentra el foco
 
