@@ -22,7 +22,8 @@ import torch
 from ultralytics import YOLO
 from vision_msgs.msg import Detection2D, Detection2DArray, ObjectHypothesisWithPose
 
-from cuadrirotor_sim.marcado import detecciones_de, marcar
+from cuadrirotor_sim.cajas import detecciones_de
+from cuadrirotor_sim.marcado import marcar
 
 
 class DetectorYolo(Node):
