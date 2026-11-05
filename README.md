@@ -74,7 +74,42 @@ Otras:
 Argumentos: `mundo` (incendio|bosque), `vehiculo` (tarot650pro|tarot650|cuadrirotor; por omisión
 `tarot650pro`), `controlador` (pd|sta|ardupilot|ninguno), `mision` (hover|orbita|busqueda), `yolo`
 (auto|true|false), `viento`, `gui`, `csv`. `controlador:=ardupilot` requiere ArduCopter SITL en
-`~/ardupilot` y el plugin `ardupilot_gazebo`; la búsqueda con YOLO funciona con `pd` o `sta`.
+`~/ardupilot` y el plugin `ardupilot_gazebo` (ver [Con ArduPilot SITL](#con-ardupilot-sitl)).
+
+## Con ArduPilot SITL
+
+La búsqueda (o la órbita) pilotada por ArduCopter 4.7.2 SITL en lugar de los controladores de ROS 2:
+
+    ros2 launch cuadrirotor_sim simulacion.launch.py mundo:=incendio controlador:=ardupilot mision:=busqueda
+
+![Ventanas de ArduPilot: terminal y consola de MAVProxy, terminal de ArduCopter, Gazebo con la detección de YOLO26 y el mapa con la ruta y el foco](docs/ardupilot_ventanas.jpg)
+
+Con la interfaz se abren y se acomodan solas (`ventanas_sitl.py`) las ventanas del SITL:
+
+- **Terminal de MAVProxy** (arriba a la izquierda): su prompt acepta comandos, p. ej. `mode RTL`,
+  `mode LAND`, `arm throttle`.
+- **Consola de MAVProxy**: modo, armado, GPS, batería y mensajes de ArduPilot.
+- **Terminal de ArduCopter** (abajo a la izquierda): la salida del SITL.
+- **Gazebo** con el panel "Detección YOLO".
+- **Mapa de MAVProxy**: la ruta de patrulla (cian), la trayectoria recorrida (magenta) y el
+  incendio con sus coordenadas (círculo rojo), que dibuja el módulo `mavproxy_trayectoria.py`. En
+  su prompt: `trayectoria borrar`, `trayectoria ocultar`, `trayectoria mostrar`.
+
+Cómo funciona: `mision_ardupilot` espera al EKF, arma en GUIDED, despega y manda por MAVLink la
+misma referencia que a los controladores de ROS 2; con `mision:=busqueda`, despega a 5 m y después
+reenvía las consignas de `busqueda_incendio`. El *home* del SITL es el origen del mundo
+(`geo.ORIGEN`), así que su GPS y el del mapa coinciden con las coordenadas del foco. Los parámetros
+de ArduCopter de cada vehículo están en `config/ardupilot/<vehiculo>.parm`.
+
+Requisitos: ArduCopter SITL compilado en `~/ardupilot` (o `ARDUPILOT_DIR`), el entorno
+`~/venv-ardupilot` (o `ARDUPILOT_VENV`) con `MAVProxy`, `pymavlink` y `python-xlib`, y `xterm`
+(`sudo apt install xterm`). El plugin `ardupilot_gazebo` se compila en el workspace:
+
+    git clone https://github.com/ArduPilot/ardupilot_gazebo.git ~/ros2_ws/src/ardupilot_gazebo
+
+Verificado con el Tarot 650 Pro: en la órbita, error RMS de 10.9 cm (sin viento); en la búsqueda
+del mundo `incendio`, foco (8.0, 5.0) al iniciar el descenso, frente al real (8, 5). En la captura
+el mapa no tiene fondo porque se grabó sin acceso a los servidores de mapas.
 
 ## Detección con YOLO26
 
