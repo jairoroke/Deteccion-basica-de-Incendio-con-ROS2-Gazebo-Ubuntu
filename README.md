@@ -63,9 +63,35 @@ Otras:
     ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=cuadrirotor            # cuadrirrotor genérico
 
 Argumentos: `mundo` (incendio|bosque), `vehiculo` (tarot650pro|tarot650|cuadrirotor; por omisión
-`tarot650pro`), `controlador` (pd|sta|ardupilot|ninguno), `mision` (hover|orbita|busqueda), `viento`,
-`gui`, `csv`. `controlador:=ardupilot` requiere ArduCopter SITL en `~/ardupilot` y el plugin
-`ardupilot_gazebo`; la búsqueda con YOLO funciona con `pd` o `sta`.
+`tarot650pro`), `controlador` (pd|sta|ardupilot|ninguno), `mision` (hover|orbita|busqueda), `yolo`
+(auto|true|false), `viento`, `gui`, `csv`. `controlador:=ardupilot` requiere ArduCopter SITL en
+`~/ardupilot` y el plugin `ardupilot_gazebo`; la búsqueda con YOLO funciona con `pd` o `sta`.
+
+## Detección con YOLO26
+
+El detector (`detector_yolo`) corre en **todas las misiones** cuando está instalado el entorno de
+YOLO (`yolo:=auto`, por omisión; `yolo:=false` lo apaga). En el panel "Detección YOLO" de Gazebo
+cada objeto queda encuadrado y etiquetado con su clase y confianza (`fuego` en naranja, `humo` en
+azul). El objetivo, el fuego más confiable o, si no hay, el humo, se marca con esquinas gruesas y
+una línea desde el centro de la imagen. Usa la GPU si PyTorch tiene CUDA y, si no, la CPU
+(`dispositivo:=auto`). Los umbrales de confianza se ajustan con los parámetros `confianza`,
+`confianza_fuego` y `confianza_humo` del nodo.
+
+El modelo (`yolo/incendio_yolo26n.pt`) se ajustó también con imágenes del mundo `incendio`: el
+anterior, entrenado solo en `bosque`, tomaba por fuego los árboles simples de ese mundo. Evaluación
+con imágenes nuevas (umbral 0.35, cámara con la óptica de la del dron, de 4 a 70 m del foco):
+
+| | Modelo anterior | Modelo actual |
+|---|---|---|
+| `incendio`: imágenes con fuego visible en las que se detecta | 100 % | 100 % |
+| `incendio`: vistas sin fuego (árboles) con un falso `fuego` | 92 de 200 | 0 de 200 |
+| `bosque`: imágenes con humo visible en las que se detecta | 92.7 % | 100 % |
+| `bosque`: precisión del humo | 0.84 | 0.93 |
+
+Para reentrenarlo: generar imágenes de cada mundo con `scripts/capturar_dataset.py` (`--mundo
+incendio` o `bosque`) y ajustar desde el modelo actual con `scripts/entrenar_yolo.py
+<dataset_incendio> <dataset_bosque> --desde yolo/incendio_yolo26n.pt --epocas 10 --congelar 10 --lr0
+0.001` (así se obtuvo el actual: 1200 imágenes de `incendio` y 800 de `bosque`, 40 min en CPU).
 
 ## Vehículos
 
