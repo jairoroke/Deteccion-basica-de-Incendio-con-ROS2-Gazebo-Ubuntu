@@ -7,6 +7,12 @@ modo GUIDED y recibe la posición, velocidad y guiñada deseadas por MAVLink
 Gazebo y se guarda en el mismo formato CSV que controlador_pd, para comparar
 con scripts/metricas.py.
 
+Con mision:=busqueda la referencia no sale de aquí: el nodo despega a 'altura'
+sobre el punto de salida y luego reenvía a ArduPilot las consignas que publica
+busqueda_incendio en /cuadrirotor/consigna (marco del mundo). Antes de armar
+se mide el desfase entre el marco local de ArduPilot (LOCAL_POSITION_NED) y el
+mundo de Gazebo, y se descuenta de cada consigna.
+
 Se ejecuta con el Python del entorno de ArduPilot (~/venv-ardupilot), que tiene
 pymavlink y ve los paquetes de ROS 2.
 
@@ -23,6 +29,7 @@ from pymavlink import mavutil
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Empty
+from trajectory_msgs.msg import MultiDOFJointTrajectoryPoint
 
 from cuadrirotor_sim.dinamica import Referencia, quat_a_rot, rot_a_euler
 
@@ -52,12 +59,19 @@ class MisionArduPilot(Node):
         self.t_estado = time.monotonic()
         self.ultimo = (None, None, 0.0)
         self.prearmado = False
+        self.externa = v['mision'] == 'busqueda'
+        self.p0 = np.zeros(3)        # origen del marco local de ArduPilot, en el mundo
+        self.local = None            # última LOCAL_POSITION_NED, pasada a ENU
+        self.consigna = None
 
         self.mav = mavutil.mavlink_connection(v['conexion'], source_system=250)
         self.get_logger().info(f"Esperando a ArduPilot en {v['conexion']} ...")
 
         self.pub_inicio = self.create_publisher(Empty, '/cuadrirotor/mision/inicio', 1)
         self.create_subscription(Odometry, '/cuadrirotor/odometria', self._odom, 10)
+        if self.externa:
+            self.create_subscription(MultiDOFJointTrajectoryPoint, '/cuadrirotor/consigna',
+                                     self._consigna, 10)
         self.create_timer(v['periodo_comando'], self._paso)
         self.create_timer(0.005, self._registrar)
 
@@ -71,6 +85,13 @@ class MisionArduPilot(Node):
     # ---------------------------------------------------------------- estado
     def _odom(self, msg):
         self.odom = msg
+
+    def _consigna(self, msg):
+        tr, vel = msg.transforms[0], msg.velocities[0]
+        q = tr.rotation
+        psi = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y ** 2 + q.z ** 2))
+        self.consigna = (np.array([tr.translation.x, tr.translation.y, tr.translation.z]),
+                         np.array([vel.linear.x, vel.linear.y, vel.linear.z]), psi)
 
     def _posicion(self):
         o = self.odom.pose.pose.position
@@ -95,6 +116,8 @@ class MisionArduPilot(Node):
             elif tipo == 'SYS_STATUS':
                 self.prearmado = bool(m.onboard_control_sensors_health
                                       & mavutil.mavlink.MAV_SYS_STATUS_PREARM_CHECK)
+            elif tipo == 'LOCAL_POSITION_NED':
+                self.local = np.array([m.y, m.x, -m.z])
 
     # --------------------------------------------------------------- máquina
     def _paso(self):
@@ -109,7 +132,11 @@ class MisionArduPilot(Node):
                     mavutil.mavlink.MAV_DATA_STREAM_ALL, 10, 1)
                 self._cambiar('preparando', 'Conectado; esperando que el EKF esté listo')
         elif self.estado == 'preparando':
-            if self.prearmado and self.odom is not None:
+            if self.prearmado and self.odom is not None and (self.local is not None or not self.externa):
+                if self.externa:
+                    self.p0 = self._posicion() - self.local
+                    self.get_logger().info(f'Desfase marco local de ArduPilot -> mundo: '
+                                           f'({self.p0[0]:.2f}, {self.p0[1]:.2f}, {self.p0[2]:.2f}) m')
                 self.mav.set_mode('GUIDED')
                 self._cambiar('armando', 'Modo GUIDED; armando')
         elif self.estado == 'armando':
@@ -122,19 +149,28 @@ class MisionArduPilot(Node):
                 self.mav.arducopter_arm()
                 self.t_estado = time.monotonic()
         elif self.estado == 'despegando':
-            if self._posicion()[2] > self.v['altura'] - 0.15 and esperado > 3.0:
+            if self._posicion()[2] - self.p0[2] > self.v['altura'] - 0.15 and esperado > 3.0:
                 self.t0 = self._ahora()
+                if self.externa:
+                    self._cambiar('mision', 'Altura alcanzada; sigue las consignas de busqueda_incendio')
+                    return
                 self.ref = Referencia(self._posicion(), **self.args_ref)
                 self.pub_inicio.publish(Empty())
                 self._cambiar('mision', f"Altura alcanzada; inicia la misión '{self.v['mision']}'")
         elif self.estado == 'mision':
             t = self._ahora() - self.t0
-            pd, vd, _, psid = self.ref(t)
+            if self.externa:
+                if self.consigna is None:
+                    return
+                pd, vd, psid = self.consigna
+            else:
+                pd, vd, _, psid = self.ref(t)
             self.ultimo = (pd, psid, t)
+            pl = pd - self.p0          # al marco local de ArduPilot
             self.mav.mav.set_position_target_local_ned_send(
                 0, self.mav.target_system, self.mav.target_component,
                 mavutil.mavlink.MAV_FRAME_LOCAL_NED, MASCARA,
-                pd[1], pd[0], -pd[2], vd[1], vd[0], -vd[2], 0, 0, 0,
+                pl[1], pl[0], -pl[2], vd[1], vd[0], -vd[2], 0, 0, 0,
                 math.pi / 2 - psid, 0)
 
     def _registrar(self):

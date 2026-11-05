@@ -18,11 +18,16 @@ Ejemplos:
   ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque controlador:=ardupilot mision:=orbita
   ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque controlador:=sta mision:=busqueda
   ros2 launch cuadrirotor_sim simulacion.launch.py mundo:=incendio controlador:=sta mision:=busqueda
+  ros2 launch cuadrirotor_sim simulacion.launch.py mundo:=incendio controlador:=ardupilot mision:=busqueda
 
 Con controlador:=ardupilot el dron lo pilota ArduCopter SITL (~/ardupilot, o la
 ruta de ARDUPILOT_DIR) con el Python de ~/venv-ardupilot (o ARDUPILOT_VENV), y
 el nodo mision_ardupilot le manda la misma referencia que a los controladores
-de ROS 2.
+de ROS 2 (con mision:=busqueda, las consignas de busqueda_incendio). Con GUI se
+abren las ventanas del SITL: la terminal de MAVProxy (para escribirle comandos),
+la terminal de ArduCopter y la consola y el mapa de MAVProxy (con la ruta, la
+trayectoria y el foco), acomodadas por ventanas_sitl.py. El 'home' del SITL es
+el origen del mundo (geo.ORIGEN).
 """
 import os
 import signal
@@ -43,6 +48,14 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
+from cuadrirotor_sim.geo import ORIGEN
+
+
+def dir_temporal(*partes):
+    d = os.path.join(tempfile.gettempdir(), f'cuadrirotor_sim_{os.getuid()}', *partes)
+    os.makedirs(d, exist_ok=True)
+    return d
+
 
 def terminar_restos(event, context):
     """Al cerrar, termina lo que el launch no alcanza a cerrar solo.
@@ -52,7 +65,8 @@ def terminar_restos(event, context):
     Con Ctrl+C en una terminal no hace falta (la señal llega a todo el grupo), pero sí
     al cerrar la ventana de la terminal o cuando solo el launch recibe la señal. Solo
     toca los procesos de esta simulación: el gz sim con un mundo de cuadrirotor_sim
-    (y sus hijos), el SITL de ArduCopter y el MAVProxy conectado a él.
+    (y sus hijos), el SITL de ArduCopter, el MAVProxy conectado a él y la terminal
+    'ArduCopter'.
     """
     procesos = {}
     for pid in filter(str.isdigit, os.listdir('/proc')):
@@ -68,7 +82,8 @@ def terminar_restos(event, context):
     raices = {p for p, (_, c) in procesos.items()
               if (c.startswith('gz sim') and 'cuadrirotor_sim' in c)
               or 'build/sitl/bin/arducopter' in c
-              or ('mavproxy.py' in c and 'tcp:127.0.0.1:5760' in c)}
+              or ('mavproxy.py' in c and 'tcp:127.0.0.1:5760' in c)
+              or (c.startswith('xterm') and '-T ArduCopter' in c)}
     todos, nuevos = set(raices), set(raices)
     while nuevos:
         nuevos = {p for p, (pp, _) in procesos.items() if pp in nuevos} - todos
@@ -157,14 +172,16 @@ def busqueda(context, share):
     """Planificador de la búsqueda del incendio (el detector lo lanza detector())."""
     if LaunchConfiguration('mision').perform(context) != 'busqueda':
         return []
-    if LaunchConfiguration('controlador').perform(context) == 'ardupilot':
-        raise RuntimeError('La misión de búsqueda funciona con controlador:=pd o sta')
     vehiculo = LaunchConfiguration('vehiculo').perform(context)
+    # Ruta y foco para el mapa de MAVProxy (mavproxy_trayectoria); sin restos de otra corrida.
+    archivo_mapa = os.path.join(dir_temporal(), 'mapa_busqueda.json')
+    if os.path.exists(archivo_mapa):
+        os.remove(archivo_mapa)
     planificador = Node(
         package='cuadrirotor_sim', executable='busqueda_incendio', output='screen',
         parameters=[os.path.join(share, 'config', 'parametros.yaml'),
                     os.path.join(share, 'config', f'vehiculo_{vehiculo}.yaml'),
-                    {'use_sim_time': True}])
+                    {'use_sim_time': True, 'archivo_mapa': archivo_mapa}])
     return [planificador]
 
 
@@ -180,26 +197,43 @@ def ardupilot(context, share):
                       (python, 'entorno de Python de ArduPilot')):
         if not os.path.exists(ruta):
             raise RuntimeError(f'No se encontró el {que}: {ruta}')
-    trabajo = os.path.join(tempfile.gettempdir(), f'cuadrirotor_sim_{os.getuid()}', 'ardupilot')
-    os.makedirs(trabajo, exist_ok=True)
+    trabajo = dir_temporal('ardupilot')
+    mision_nombre = LaunchConfiguration('mision').perform(context)
 
     sitl = [python, os.path.join(ap, 'Tools', 'autotest', 'sim_vehicle.py'),
             '-v', 'ArduCopter', '-f', 'gazebo-iris', '--model', 'JSON', '--no-rebuild', '-w',
             '--add-param-file', os.path.join(share, 'config', 'ardupilot', f'{vehiculo}.parm'),
-            '--out', 'udp:127.0.0.1:14551', '--mavproxy-args=--non-interactive']
-    if LaunchConfiguration('gui').perform(context) == 'true':
-        sitl += ['--console', '--map']
+            '--out', 'udp:127.0.0.1:14551']
+    # 'home' del SITL en el origen del mundo de Gazebo: su GPS es home + posición en
+    # Gazebo, así coincide con geo.enu_a_geodesica (la ruta y el foco del mapa).
+    lat, lon, alt = ORIGEN
+    sitl += ['-l', f'{lat:.7f},{lon:.7f},{alt:.1f},0']
+    gui = LaunchConfiguration('gui').perform(context) == 'true'
+    if gui:   # consola y mapa de MAVProxy, con la ruta, la trayectoria y el foco en el mapa
+        sitl += ['--console', '--map',
+                 '--mavproxy-args=--load-module=cuadrirotor_sim.mavproxy_trayectoria']
+    else:
+        sitl += ['--mavproxy-args=--non-interactive']
     entorno = {'PATH': os.path.join(venv, 'bin') + os.pathsep + os.environ.get('PATH', ''),
                'VIRTUAL_ENV': venv}
+    if gui:   # la terminal de ArduCopter, abajo a la izquierda (sin tapar la de MAVProxy)
+        entorno['SITL_RITW_TERMINAL'] = 'xterm -T ArduCopter -geometry 120x18+0-0 -fa Monospace -fs 9 -hold -e'
 
     mision = [python, '-m', 'cuadrirotor_sim.mision_ardupilot', '--ros-args',
               '--params-file', os.path.join(share, 'config', 'parametros.yaml'),
-              '-p', 'use_sim_time:=true',
-              '-p', f"mision:={LaunchConfiguration('mision').perform(context)}"]
+              '-p', 'use_sim_time:=true', '-p', f'mision:={mision_nombre}']
+    if mision_nombre == 'busqueda':
+        mision += ['-p', 'altura:=5.0']   # despegue; después manda busqueda_incendio
     csv = LaunchConfiguration('csv').perform(context)
     if csv:
         mision += ['-p', f'archivo_csv:={csv}']
-    return [ExecuteProcess(cmd=sitl, cwd=trabajo, additional_env=entorno, output='screen',
+    if gui:   # sim_vehicle en su propia terminal: ahí queda el prompt de MAVProxy
+        sitl = ['xterm', '-T', 'MAVProxy: escribe aquí los comandos (mode RTL, arm throttle, ...)',
+                '-geometry', '110x32+0+0', '-fa', 'Monospace', '-fs', '11', '-e', *sitl]
+    ventanas = [ExecuteProcess(cmd=[python, '-m', 'cuadrirotor_sim.ventanas_sitl', '120'],
+                               additional_env=entorno, output='screen', name='ventanas_sitl')] if gui else []
+    return [*ventanas,
+            ExecuteProcess(cmd=sitl, cwd=trabajo, additional_env=entorno, output='screen',
                            name='ardupilot_sitl'),
             ExecuteProcess(cmd=mision, additional_env=entorno, output='screen',
                            name='mision_ardupilot')]

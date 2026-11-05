@@ -23,9 +23,15 @@ Estimación del foco:
     mínimos cuadrados.
   - Las cajas recortadas por el borde de la imagen no se usan para ubicar el
     foco (su centro no es el del objeto); sí cuentan para confirmar la detección.
+
+Con 'archivo_mapa' se escriben ahí (JSON, latitud y longitud, con el origen
+'origen_gps' de geo.py) la ruta de patrulla y el foco estimado, que el módulo
+mavproxy_trayectoria dibuja en el mapa de MAVProxy (controlador:=ardupilot).
 """
 from collections import deque
+import json
 import math
+import os
 
 from geometry_msgs.msg import PointStamped, Quaternion, Transform, Twist, Vector3
 from nav_msgs.msg import Odometry
@@ -38,6 +44,7 @@ from vision_msgs.msg import Detection2DArray
 
 from cuadrirotor_sim.cajas import toca_borde
 from cuadrirotor_sim.dinamica import envolver, quat_a_rot
+from cuadrirotor_sim.geo import ORIGEN, enu_a_geodesica
 
 RUTA = [-35.0, -30.0, 45.0, -30.0, 45.0, -10.0, -35.0, -10.0,
         -35.0, 10.0, 45.0, 10.0, 45.0, 30.0, -35.0, 30.0]
@@ -61,6 +68,7 @@ class BusquedaIncendio(Node):
             ('camara_xyz', [0.12, 0.0, -0.06]), ('camara_pitch', 0.5236),
             ('camara_hfov', 1.3), ('camara_ancho', 640), ('camara_alto', 480),
             ('periodo', 0.02),
+            ('archivo_mapa', ''), ('origen_gps', list(ORIGEN)),
         ])
         self.v = {x.name: x.value for x in p}
         self.ruta = np.reshape(self.v['ruta'], (-1, 2))
@@ -80,6 +88,8 @@ class BusquedaIncendio(Node):
         self.foco = None
         self.entrada = None
         self.t_orbita = None
+        self.mapa = {'ruta': [list(self._gps(x, y)[:2]) for x, y in self.ruta]}
+        self._escribir_mapa()
 
         self.pub = self.create_publisher(MultiDOFJointTrajectoryPoint, '/cuadrirotor/consigna', 10)
         self.pub_foco = self.create_publisher(PointStamped, '/cuadrirotor/foco_estimado', 10)
@@ -106,6 +116,22 @@ class BusquedaIncendio(Node):
 
     def _pose_en(self, t):
         return min(self.odom, key=lambda e: abs(e[0] - t))[1:]
+
+    def _gps(self, x, y, z=0.0):
+        return enu_a_geodesica(x, y, z, tuple(self.v['origen_gps']))
+
+    def _escribir_mapa(self):
+        """Ruta y foco para el mapa de MAVProxy (mavproxy_trayectoria), si se pidió."""
+        ruta = self.v['archivo_mapa']
+        if not ruta:
+            return
+        try:
+            tmp = ruta + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(self.mapa, f)
+            os.replace(tmp, ruta)
+        except OSError as e:
+            self.get_logger().error(f'No se pudo escribir {ruta}: {e}')
 
     def _rayo(self, p, R, u, v):
         """Origen y dirección (mundo) del rayo de la cámara por el píxel (u, v)."""
@@ -182,6 +208,12 @@ class BusquedaIncendio(Node):
         self.pub_foco.publish(m)
         if nuevo:
             self.get_logger().info(f'Foco estimado con {fuente}: ({est[0]:.1f}, {est[1]:.1f})')
+            self._marcar_foco()
+
+    def _marcar_foco(self):
+        """Pone el foco estimado en el mapa de MAVProxy."""
+        self.mapa['incendio'] = list(self._gps(float(self.foco[0]), float(self.foco[1])))
+        self._escribir_mapa()
 
     # ------------------------------------------------------------ consignas
     def _seguir(self, objetivo, yaw_obj, dt):
@@ -261,6 +293,7 @@ class BusquedaIncendio(Node):
                 self.t_orbita = self._ahora()
                 self.th0 = math.atan2(self.entrada[1] - self.foco[1], self.entrada[0] - self.foco[0])
                 self.pub_inicio.publish(Empty())
+                self._marcar_foco()      # el foco final, el que se orbita
                 self._cambiar('orbita', 'Orbitando el foco')
         elif self.estado == 'orbita':
             self._orbita()
