@@ -4,7 +4,8 @@
     despega, como una línea continua (un punto cada 'paso' metros).
   - Ruta planeada (cian tenue) y foco del incendio confirmado (círculo rojo):
     los escribe busqueda_incendio en un JSON ('archivo_mapa'); este módulo lo
-    vuelve a leer cuando cambia.
+    vuelve a leer cuando cambia. La primera vez que llega la ruta, el mapa se
+    centra en ella con el acercamiento justo para verla entera.
 
 Se carga con  mavproxy.py --load-module=cuadrirotor_sim.mavproxy_trayectoria
 (el launch lo hace con controlador:=ardupilot y GUI). Comandos en el prompt:
@@ -32,6 +33,21 @@ def distancia(a, b):
     return math.hypot(dx, dy)
 
 
+def encuadre(ruta):
+    """Centro (lat, lon) y ancho a la vista [m] para ver la ruta entera, con margen."""
+    lats, lons = [p[0] for p in ruta], [p[1] for p in ruta]
+    centro = ((min(lats) + max(lats)) / 2, (min(lons) + max(lons)) / 2)
+    lado = max(distancia((min(lats), centro[1]), (max(lats), centro[1])),
+               distancia((centro[0], min(lons)), (centro[0], max(lons))))
+    return centro, max(80.0, 1.6 * lado)
+
+
+def encuadrar(mapa, ruta):
+    centro, ancho = encuadre(ruta)
+    mapa.set_center(*centro)
+    mapa.set_zoom(ancho)
+
+
 class Trayectoria(mp_module.MPModule):
 
     def __init__(self, mpstate):
@@ -44,6 +60,7 @@ class Trayectoria(mp_module.MPModule):
         self.t_archivo = 0.0
         self.mtime = None
         self.datos = {}
+        self.encuadrado = False
         self.add_command('trayectoria', self.comando, 'trayectoria recorrida en el mapa',
                          ['borrar', 'ocultar', 'mostrar'])
 
@@ -103,6 +120,9 @@ class Trayectoria(mp_module.MPModule):
             self.mtime = None     # a medio escribir; se reintenta
             return
         ruta = [tuple(p) for p in self.datos.get('ruta', [])]
+        if len(ruta) >= 2 and not self.encuadrado:
+            self.encuadrado = True
+            encuadrar(mapa, ruta)
         if self.visible and len(ruta) >= 2:
             mapa.add_object(mp_slipmap.SlipPolygon('ruta_planeada', ruta, layer=CAPA,
                                                    colour=(0, 160, 160), linewidth=1, showcircles=False))
