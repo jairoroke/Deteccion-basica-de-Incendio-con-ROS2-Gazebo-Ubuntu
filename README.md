@@ -92,8 +92,23 @@ Con la interfaz se abren y se acomodan solas (`ventanas_sitl.py`) las ventanas d
 - **Terminal de ArduCopter** (abajo a la izquierda): la salida del SITL.
 - **Gazebo** con el panel "Detección YOLO".
 - **Mapa de MAVProxy**: la ruta de patrulla (cian), la trayectoria recorrida (magenta) y el
-  incendio con sus coordenadas (círculo rojo), que dibuja el módulo `mavproxy_trayectoria.py`. En
-  su prompt: `trayectoria borrar`, `trayectoria ocultar`, `trayectoria mostrar`.
+  incendio con sus coordenadas (círculo rojo), que dibuja el módulo `mavproxy_trayectoria.py`. Al
+  llegar la ruta, el mapa se centra en ella. En su prompt: `trayectoria borrar`,
+  `trayectoria ocultar`, `trayectoria mostrar`.
+
+Cada ventana, durante la órbita sobre el foco:
+
+| Terminal de MAVProxy | Consola de MAVProxy |
+|---|---|
+| ![Terminal de MAVProxy con el prompt GUIDED>](docs/ardupilot_terminal_mavproxy.png) | ![Consola de MAVProxy: GUIDED, armado, GPS y mensajes de ArduPilot](docs/ardupilot_consola.png) |
+
+| Mapa de MAVProxy | Gazebo con la detección de YOLO26 |
+|---|---|
+| ![Mapa de MAVProxy: home, trayectoria recorrida y el incendio con sus coordenadas](docs/ardupilot_mapa.jpg) | ![Gazebo: el Tarot 650 Pro orbita el fuego; el panel encuadra el fuego](docs/ardupilot_gazebo.jpg) |
+
+Terminal de ArduCopter (salida del SITL):
+
+![Terminal de ArduCopter](docs/ardupilot_terminal_arducopter.png)
 
 Cómo funciona: `mision_ardupilot` espera al EKF, arma en GUIDED, despega y manda por MAVLink la
 misma referencia que a los controladores de ROS 2; con `mision:=busqueda`, despega a 5 m y después
@@ -108,8 +123,8 @@ Requisitos: ArduCopter SITL compilado en `~/ardupilot` (o `ARDUPILOT_DIR`), el e
     git clone https://github.com/ArduPilot/ardupilot_gazebo.git ~/ros2_ws/src/ardupilot_gazebo
 
 Verificado con el Tarot 650 Pro: en la órbita, error RMS de 10.9 cm (sin viento); en la búsqueda
-del mundo `incendio`, foco (8.0, 5.0) al iniciar el descenso, frente al real (8, 5). En la captura
-el mapa no tiene fondo porque se grabó sin acceso a los servidores de mapas.
+del mundo `incendio`, foco (8.0, 5.0) al iniciar el descenso, frente al real (8, 5). Las capturas
+son de una pantalla de 2560x1440, con el mapa satelital de Google (`MAP_SERVICE=GoogleSat`).
 
 ## Detección con YOLO26
 
