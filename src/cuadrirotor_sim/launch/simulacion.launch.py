@@ -1,7 +1,12 @@
 """Lanza Gazebo con el escenario del incendio, el puente ROS 2 y el controlador.
 
+El vehículo por omisión es el Tarot 650 Pro (vehiculo:=tarot650pro); los otros
+son el Tarot Ironman 650 con su equipo original (tarot650) y el cuadrirrotor
+genérico en "+" (cuadrirotor).
+
 Ejemplos:
   ros2 launch cuadrirotor_sim simulacion.launch.py
+  ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=cuadrirotor
   ros2 launch cuadrirotor_sim simulacion.launch.py mision:=orbita viento:=true
   ros2 launch cuadrirotor_sim simulacion.launch.py gui:=false csv:=/tmp/corrida.csv
   ros2 launch cuadrirotor_sim simulacion.launch.py controlador:=sta esquema:=implicito
@@ -9,6 +14,7 @@ Ejemplos:
   ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque
   ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque controlador:=ardupilot mision:=orbita
   ros2 launch cuadrirotor_sim simulacion.launch.py vehiculo:=tarot650 mundo:=bosque controlador:=sta mision:=busqueda
+  ros2 launch cuadrirotor_sim simulacion.launch.py mundo:=incendio controlador:=sta mision:=busqueda
 
 Con controlador:=ardupilot el dron lo pilota ArduCopter SITL (~/ardupilot, o la
 ruta de ARDUPILOT_DIR) con el Python de ~/venv-ardupilot (o ARDUPILOT_VENV), y
@@ -246,7 +252,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('mundo', default_value='incendio', description='incendio | bosque'),
-        DeclareLaunchArgument('vehiculo', default_value='cuadrirotor', description='cuadrirotor | tarot650'),
+        DeclareLaunchArgument('vehiculo', default_value='tarot650pro',
+                              description='tarot650pro | tarot650 | cuadrirotor'),
         DeclareLaunchArgument('gui', default_value='true', description='Mostrar la interfaz de Gazebo'),
         DeclareLaunchArgument('controlador', default_value='pd', description='pd | sta | ardupilot | ninguno (para lanzarlo aparte con ros2 run)'),
         DeclareLaunchArgument('esquema', default_value='implicito',

@@ -9,8 +9,8 @@ Así el modelo Newton-Euler del controlador coincide siempre con la planta.
 Todos los modelos se llaman 'cuadrirotor' dentro de Gazebo, de modo que los
 tópicos y el puente no cambian al cambiar de vehículo.
 
-Uso:  python3 scripts/generar_modelo.py            (desde el paquete; todos)
-      python3 scripts/generar_modelo.py tarot650   (solo uno)
+Uso:  python3 scripts/generar_modelo.py               (desde el paquete; todos)
+      python3 scripts/generar_modelo.py tarot650pro   (solo uno)
 """
 import os
 import sys
@@ -21,6 +21,55 @@ import numpy as np
 CAMARA_PITCH = 0.5236   # 30 grados hacia abajo
 CAMARA_HFOV = 1.3       # campo de visión horizontal [rad]
 CAMARA_ANCHO, CAMARA_ALTO = 640, 480
+
+
+def masa_inercia(piezas):
+    """Masa, centro de masa e inercia (respecto a ese centro) de un conjunto de piezas.
+
+    Cada pieza es (nombre, masa [kg], centro (x, y, z) [m], lados (lx, ly, lz) [m]):
+    una caja homogénea alineada con el cuerpo; con lados nulos es una masa puntual.
+    Se desprecian los productos de inercia.
+    """
+    m = sum(p[1] for p in piezas)
+    c = sum(p[1] * np.asarray(p[2], dtype=float) for p in piezas) / m
+    I = np.zeros(3)
+    for _, mi, centro, (lx, ly, lz) in piezas:
+        dx, dy, dz = np.asarray(centro, dtype=float) - c
+        I += mi * np.array([(ly**2 + lz**2) / 12 + dy**2 + dz**2,
+                            (lx**2 + lz**2) / 12 + dx**2 + dz**2,
+                            (lx**2 + ly**2) / 12 + dx**2 + dy**2])
+    return m, c, I
+
+
+# Posición de los motores del Tarot Ironman 650, medida en el CAD de GrabCAD.
+ROTORES_TAROT650 = [(0.2198, -0.212, 'ccw'), (0.2198, 0.212, 'cw'),
+                    (-0.2198, 0.212, 'ccw'), (-0.2198, -0.212, 'cw')]
+
+# Tarot 650 Pro: el mismo armazón Ironman 650 con equipo de mayor carga (motores
+# Tarot 4114/320KV a 6S, hélices de 15.5" y gimbal con cámara). Presupuesto de masa
+# del cuerpo (las hélices van en los rotores). Del fabricante: armazón TL65B01 476 g
+# (placas, brazos y tren), motor TL100B08 148 g y 46 mm, gimbal T4-3D TL3D01 178 g y
+# 99 x 88.5 x 105.6 mm. El resto son valores típicos supuestos. La batería va corrida
+# hacia atrás para equilibrar el gimbal (el Ironman 650 tiene ambos en rieles para
+# ajustar el centro de gravedad), que queda bajo el centro del marco y ~5 cm abajo.
+PIEZAS_TAROT650PRO = [
+    ('placas centrales', 0.200, (0.0, 0.0, -0.02), (0.162, 0.163, 0.10)),
+    *[('brazo y soporte de motor', 0.039, (0.6 * x, 0.6 * y, -0.003), (0, 0, 0))
+      for x, y, _ in ROTORES_TAROT650],
+    ('tren de aterrizaje', 0.120, (0.0, 0.0, -0.125), (0.20, 0.23, 0.21)),
+    *[('motor Tarot 4114/320KV', 0.148, (x, y, 0.026), (0.046, 0.046, 0.032))
+      for x, y, _ in ROTORES_TAROT650],
+    *[('ESC 30 A', 0.030, (0.5 * x, 0.5 * y, 0.0), (0, 0, 0)) for x, y, _ in ROTORES_TAROT650],
+    ('controlador de vuelo, GPS, receptor y cables', 0.250, (0.0, 0.0, 0.02), (0.12, 0.12, 0.04)),
+    ('batería LiPo 6S 8000 mAh', 0.950, (-0.0425, 0.0, -0.101), (0.16, 0.065, 0.06)),
+    ('gimbal Tarot T4-3D', 0.178, (0.15, 0.0, -0.123), (0.099, 0.0885, 0.1056)),
+    ('cámara GoPro', 0.088, (0.155, 0.0, -0.137), (0.033, 0.062, 0.045)),
+]
+_M_PRO, _CDM_PRO, _I_PRO = masa_inercia(PIEZAS_TAROT650PRO)
+if np.hypot(_CDM_PRO[0], _CDM_PRO[1]) > 1e-3:
+    # El controlador supone el centro de masa en el eje de simetría de los rotores.
+    raise ValueError(f'El centro de masa del tarot650pro queda en {_CDM_PRO[:2]} m: '
+                     'ajusta la posición de la batería')
 
 # Rotores: (x, y, sentido) en el marco del cuerpo; sentido 'ccw' o 'cw'.
 VEHICULOS = {
@@ -50,8 +99,7 @@ VEHICULOS = {
         descripcion='Tarot Ironman 650 en configuración "X" (2.2 kg, MN3508, hélices 15")',
         masa_cuerpo=2.12,
         inercia_cuerpo=(0.0304, 0.0321, 0.0585),
-        rotores=[(0.2198, -0.212, 'ccw'), (0.2198, 0.212, 'cw'),
-                 (-0.2198, 0.212, 'ccw'), (-0.2198, -0.212, 'cw')],
+        rotores=ROTORES_TAROT650,
         z_rotor=0.04,
         masa_rotor=0.02,
         inercia_rotor=(2.0e-07, 2.4e-04, 2.4e-04),
@@ -77,6 +125,65 @@ VEHICULOS = {
         # Tren de aterrizaje: dos patines a lo largo de x, 0.2205 m bajo el origen.
         patas=[(-0.1065, -0.2205), (0.1065, -0.2205)],
     ),
+    # Tarot 650 Pro: armazón, mallas y geometría del tarot650; masa, centro de masa
+    # e inercia del presupuesto PIEZAS_TAROT650PRO (2.74 kg con hélices).
+    # Hélice Tarot 1555 en el 4114/320KV a 6S (22.2 V): sin carga gira a 7100 rpm;
+    # se suponen 620 rad/s (5900 rpm) a pleno gas y 2.5 kgf de empuje (Tarot da
+    # ~2.65 kgf máximo con hélices 1555-1655), de donde kf = 2.5 * 9.81 / 620^2.
+    # Vuelo estacionario a 325 rad/s (27 % del empuje máximo), empuje/peso 3.65.
+    'tarot650pro': dict(
+        descripcion='Tarot 650 Pro: Ironman 650 en "X" con motores Tarot 4114/320KV a 6S, '
+                    'hélices 1555 y gimbal T4-3D con cámara (2.74 kg)',
+        masa_cuerpo=round(float(_M_PRO), 4),
+        inercia_cuerpo=tuple(round(float(i), 5) for i in _I_PRO),
+        # Centro de masa bajo el origen (batería y gimbal cuelgan bajo las placas).
+        # No cambia la asignación de empuje del mezclador: los empujes son paralelos a z.
+        cdm_z=round(float(_CDM_PRO[2]), 4),
+        rotores=ROTORES_TAROT650,
+        z_rotor=0.04,
+        masa_rotor=0.022,
+        inercia_rotor=(2.0e-07, 2.84e-04, 2.84e-04),
+        radio_helice=0.19685,
+        kf=6.38e-05, km=0.016, w_max=620.0,
+        # El par mayor del 4114 compensa la hélice más pesada: mismas constantes
+        # de tiempo que el tarot650.
+        tau_subida=0.03, tau_bajada=0.05,
+        # Mismo ancho de banda del lazo de actitud que el tarot650:
+        # kr = (100, 100, 25) J y kw = (16, 16, 9) J con la inercia total J.
+        kr_att=[4.84, 6.03, 2.11], kw_att=[0.77, 0.97, 0.76],
+        sta=dict(mu=[0.3, 0.3, 0.03], k1_max=3.0),
+        ardupilot=True,
+        z_inicial=0.235,
+        # Cámara del gimbal, al frente y bajo las placas.
+        camara=(0.18, 0.0, -0.137),
+        mallas_de='tarot650',
+        mallas=[('placas', '0.09 0.09 0.1 1'), ('brazos', '0.06 0.06 0.07 1'),
+                ('acentos', '0.9 0.42 0.08 1'), ('tren', '0.16 0.16 0.17 1'),
+                ('motores', '0.72 0.72 0.75 1'), ('marco', '0.6 0.6 0.62 1')],
+        helices_cad=True,
+        # Hélices del CAD (15", 0.39 m de punta a punta) llevadas a 15.5".
+        escala_helice=1.01,
+        patas=[(-0.1065, -0.2205), (0.1065, -0.2205)],
+        # Visuales de la carga: (nombre, pose x y z roll pitch yaw, geometría, color).
+        visuales=[
+            ('bateria', (-0.0425, 0, -0.101, 0, 0, 0),
+             '<box><size>0.16 0.065 0.06</size></box>', '0.85 0.68 0.1 1'),
+            ('gimbal_placa', (0.15, 0, -0.075, 0, 0, 0),
+             '<box><size>0.09 0.09 0.006</size></box>', '0.12 0.12 0.13 1'),
+            ('gimbal_motor_guinada', (0.15, 0, -0.092, 0, 0, 0),
+             '<cylinder><radius>0.018</radius><length>0.028</length></cylinder>', '0.55 0.55 0.6 1'),
+            ('gimbal_brazo', (0.15, -0.024, -0.108, 0, 0, 0),
+             '<box><size>0.012 0.048 0.005</size></box>', '0.55 0.55 0.6 1'),
+            ('gimbal_soporte', (0.155, -0.046, -0.124, 0, 0, 0),
+             '<box><size>0.012 0.005 0.036</size></box>', '0.55 0.55 0.6 1'),
+            ('gimbal_motor_cabeceo', (0.155, -0.038, -0.137, 1.5708, 0, 0),
+             '<cylinder><radius>0.016</radius><length>0.01</length></cylinder>', '0.55 0.55 0.6 1'),
+            ('camara_gopro', (0.155, 0, -0.137, 0, 0, 0),
+             '<box><size>0.033 0.062 0.045</size></box>', '0.05 0.05 0.05 1'),
+            ('lente', (0.1755, 0.012, -0.137, 0, 1.5708, 0),
+             '<cylinder><radius>0.011</radius><length>0.008</length></cylinder>', '0.25 0.3 0.4 1'),
+        ],
+    ),
 }
 
 
@@ -84,18 +191,22 @@ def inercia_total(v):
     """Inercia del vehículo completo (cuerpo + rotores como masas puntuales)."""
     m_r = v['masa_rotor']
     I = np.array(v['inercia_cuerpo'], dtype=float)
+    dz = v['z_rotor'] - v.get('cdm_z', 0.0)   # altura de los rotores sobre el centro de masa
     for x, y, _ in v['rotores']:
-        I += m_r * np.array([y**2 + v['z_rotor']**2, x**2 + v['z_rotor']**2, x**2 + y**2])
+        I += m_r * np.array([y**2 + dz**2, x**2 + dz**2, x**2 + y**2])
     return [round(float(i), 5) for i in I]
 
 
 def sdf_vehiculo(nombre, v):
     ixx_r, iyy_r, izz_r = v['inercia_rotor']
+    mallas = v.get('mallas_de', nombre)   # modelo que tiene las mallas (meshes/)
+    s = v.get('escala_helice')
+    escala = f'<scale>{s} {s} 1</scale>' if s else ''
     links, joints, plugins = [], [], []
     for i, (x, y, d) in enumerate(v['rotores']):
         color = '0.9 0.35 0.05 1' if x > 0 else '0.1 0.1 0.1 1'   # delanteros en naranja
         n = f'rotor_{i}'
-        helice = (f'<mesh><uri>model://{nombre}/meshes/helice_{i}.stl</uri></mesh>' if v.get('helices_cad') else
+        helice = (f'<mesh><uri>model://{mallas}/meshes/helice_{i}.stl</uri>{escala}</mesh>' if v.get('helices_cad') else
                   f"<box><size>{2 * v['radio_helice']} 0.028 0.004</size></box>")
         links.append(f"""
     <link name="{n}">
@@ -145,7 +256,7 @@ def sdf_vehiculo(nombre, v):
     if 'mallas' in v:
         cuerpo = ''.join(f"""
       <visual name="{m}">
-        <geometry><mesh><uri>model://{nombre}/meshes/{m}.stl</uri></mesh></geometry>
+        <geometry><mesh><uri>model://{mallas}/meshes/{m}.stl</uri></mesh></geometry>
         <material><ambient>{c}</ambient><diffuse>{c}</diffuse><specular>0.3 0.3 0.3 1</specular></material>
       </visual>""" for m, c in v['mallas'])
         colisiones = """
@@ -172,9 +283,16 @@ def sdf_vehiculo(nombre, v):
       <collision name="cuerpo_col">
         <geometry><box><size>0.2 0.2 0.06</size></box></geometry>
       </collision>"""
+    cuerpo += ''.join(f"""
+      <visual name="{n}">
+        <pose>{' '.join(str(p) for p in pose)}</pose>
+        <geometry>{geom}</geometry>
+        <material><ambient>{c}</ambient><diffuse>{c}</diffuse></material>
+      </visual>""" for n, pose, geom, c in v.get('visuales', []))
 
     ixx, iyy, izz = v['inercia_cuerpo']
     cx, cy, cz = v['camara']
+    pose_cdm = f"\n        <pose>0 0 {v['cdm_z']} 0 0 0</pose>" if v.get('cdm_z') else ''
     return f"""<?xml version="1.0"?>
 <!-- Generado por scripts/generar_modelo.py; no editar a mano.
      {v['descripcion']}.
@@ -182,7 +300,7 @@ def sdf_vehiculo(nombre, v):
 <sdf version="1.9">
   <model name="{nombre}">
     <link name="base_link">
-      <inertial>
+      <inertial>{pose_cdm}
         <mass>{v['masa_cuerpo']}</mass>
         <inertia>
           <ixx>{ixx}</ixx><ixy>0</ixy><ixz>0</ixz>
