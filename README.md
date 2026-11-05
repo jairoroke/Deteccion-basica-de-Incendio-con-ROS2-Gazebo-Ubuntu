@@ -8,18 +8,27 @@ Cadena completa: imagen de la cámara → detección (YOLO26: `fuego`, `humo`) �
 
 ## Así funciona
 
-![Demostración: el dron busca, detecta el fuego con YOLO26 y orbita el foco](docs/demo_busqueda_yolo.gif)
+El Tarot 650 Pro (vehículo por omisión) busca el incendio, YOLO26 detecta el humo y el fuego en
+su cámara (recuadro arriba a la derecha) y el dron orbita el foco. Vista de Gazebo siguiendo al
+dron, a 4 veces la velocidad:
 
-Video completo (cámara del dron con las detecciones de YOLO, al doble de velocidad):
-[docs/demo_busqueda_yolo.mp4](docs/demo_busqueda_yolo.mp4)
+![Demostración: el Tarot 650 Pro busca, detecta el fuego y el humo con YOLO26 y orbita el foco](docs/demo_busqueda_yolo.gif)
 
-| Patrulla | Aproximación | Órbita sobre el foco |
+Video completo, al doble de velocidad: [docs/demo_busqueda_yolo.mp4](docs/demo_busqueda_yolo.mp4)
+
+| Patrulla a 15 m | Aproximación | Órbita sobre el foco |
 |---|---|---|
 | ![Patrulla](docs/gazebo_patrulla.jpg) | ![Aproximación](docs/gazebo_aproximacion.jpg) | ![Órbita](docs/gazebo_orbita.jpg) |
 
-Cámara del dron: YOLO26 detecta el fuego (confianza 0.93, 16 ms por imagen en una RTX 5060 Ti):
+Cámara del dron durante la aproximación: YOLO26 encuadra el humo (0.93) y el fuego (0.96); los
+árboles no se marcan. El objetivo (el fuego) lleva esquinas gruesas y una línea desde el centro:
 
 ![Detección de YOLO](docs/yolo_deteccion.png)
+
+Imágenes y video grabados con el launch completo (`mundo:=incendio controlador:=sta
+mision:=busqueda`). YOLO corrió en CPU y con la interfaz de Gazebo compitiendo por el procesador,
+de ahí los tiempos de inferencia altos que se ven en la cámara; con una GPU (RTX 5060 Ti) tarda
+unos 16 ms por imagen.
 
 ## Contenido
 
@@ -50,10 +59,10 @@ Cámara del dron: YOLO26 detecta el fuego (confianza 0.93, 16 ms por imagen en u
 
 ## Ejecutar
 
-Búsqueda del incendio con el Tarot 650 en el mundo `incendio` (el panel "Detección YOLO" muestra
-las cajas de fuego y humo):
+Búsqueda del incendio con el Tarot 650 Pro (vehículo por omisión) en el mundo `incendio` (el
+panel "Detección YOLO" muestra las cajas de fuego y humo):
 
-    ros2 launch cuadrirotor_sim simulacion.launch.py mundo:=incendio vehiculo:=tarot650 controlador:=sta mision:=busqueda
+    ros2 launch cuadrirotor_sim simulacion.launch.py mundo:=incendio controlador:=sta mision:=busqueda
 
 Otras:
 
@@ -94,6 +103,8 @@ incendio` o `bosque`) y ajustar desde el modelo actual con `scripts/entrenar_yol
 0.001` (así se obtuvo el actual: 1200 imágenes de `incendio` y 800 de `bosque`, 40 min en CPU).
 
 ## Vehículos
+
+![Tarot 650 Pro en Gazebo: gimbal con cámara al frente y batería bajo las placas](docs/tarot650pro.png)
 
 | `vehiculo` | Qué es | Masa |
 |---|---|---|
