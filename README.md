@@ -6,6 +6,10 @@ sobre su cámara y lo orbita. Ubuntu 24.04, ROS 2 Jazzy y Gazebo Harmonic.
 Cadena completa: imagen de la cámara → detección (YOLO26: `fuego`, `humo`) → estimación del foco
 → referencia → control (PD o super-twisting adaptativo con discretización implícita).
 
+**¿Entrenaste tu propio modelo YOLO (`.pt`)?** Sigue el
+[tutorial para usarlo en la simulación](docs/tutorial_modelo_yolo.md): explica cómo funciona ROS 2
+en este proyecto, para qué sirve cada componente y cómo revisar y cargar tu modelo paso a paso.
+
 ## Así funciona
 
 El Tarot 650 Pro (vehículo por omisión) busca el incendio, YOLO26 detecta el humo y el fuego en
@@ -36,6 +40,7 @@ unos 16 ms por imagen.
   y cuadrirotor genérico), controladores PD y STA, detector YOLO (`yolo/incendio_yolo26n.pt`),
   planificador de búsqueda, viento y launch.
 - `src/cuadrirotor_gz_plugins`: sistemas de Gazebo (`FuerzaViento`, `ComandosMotores`).
+- `docs/tutorial_modelo_yolo.md`: tutorial para usar un modelo YOLO propio en la simulación.
 
 ## Instalar
 
@@ -73,7 +78,8 @@ Otras:
 
 Argumentos: `mundo` (incendio|bosque), `vehiculo` (tarot650pro|tarot650|cuadrirotor; por omisión
 `tarot650pro`), `controlador` (pd|sta|ardupilot|ninguno), `mision` (hover|orbita|busqueda), `yolo`
-(auto|true|false), `viento`, `gui`, `csv`. `controlador:=ardupilot` requiere ArduCopter SITL en
+(auto|true|false), `modelo_yolo` (ruta completa a otro `.pt`), `confianza_yolo` (por omisión
+0.35), `viento`, `gui`, `csv`. `controlador:=ardupilot` requiere ArduCopter SITL en
 `~/ardupilot` y el plugin `ardupilot_gazebo` (ver [Con ArduPilot SITL](#con-ardupilot-sitl)).
 
 ## Con ArduPilot SITL
@@ -131,7 +137,7 @@ son de una pantalla de 2560x1440, con el mapa satelital de Google (`MAP_SERVICE=
 El detector (`detector_yolo`) corre en **todas las misiones** cuando está instalado el entorno de
 YOLO (`yolo:=auto`, por omisión; `yolo:=false` lo apaga). En el panel "Detección YOLO" de Gazebo
 cada objeto queda encuadrado y etiquetado con su clase y confianza (`fuego` en naranja, `humo` en
-azul). El objetivo, el fuego más confiable o, si no hay, el humo, se marca con esquinas gruesas y
+celeste). El objetivo, el fuego más confiable o, si no hay, el humo, se marca con esquinas gruesas y
 una línea desde el centro de la imagen. Usa la GPU si PyTorch tiene CUDA y, si no, la CPU
 (`dispositivo:=auto`). Los umbrales de confianza se ajustan con los parámetros `confianza`,
 `confianza_fuego` y `confianza_humo` del nodo.
@@ -151,6 +157,13 @@ Para reentrenarlo: generar imágenes de cada mundo con `scripts/capturar_dataset
 incendio` o `bosque`) y ajustar desde el modelo actual con `scripts/entrenar_yolo.py
 <dataset_incendio> <dataset_bosque> --desde yolo/incendio_yolo26n.pt --epocas 10 --congelar 10 --lr0
 0.001` (así se obtuvo el actual: 1200 imágenes de `incendio` y 800 de `bosque`, 40 min en CPU).
+
+Para usar otro modelo, revísalo primero con `scripts/probar_modelo.py` (comprueba que cargue, que
+sus clases se llamen `fuego` y `humo`, y cómo detecta en `yolo/imagenes_prueba/`; con
+`--renombrar fire=fuego smoke=humo` corrige los nombres) y lánzalo con
+`modelo_yolo:=/ruta/completa/modelo.pt`. La búsqueda solo usa las detecciones con confianza de
+al menos 0.45 (`busqueda_incendio.confianza` en `config/parametros.yaml`). Detalles en el
+[tutorial](docs/tutorial_modelo_yolo.md).
 
 ## Vehículos
 
