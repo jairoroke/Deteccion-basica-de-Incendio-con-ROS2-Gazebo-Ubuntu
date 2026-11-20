@@ -127,7 +127,8 @@ def rutas_yolo(context, share):
     """Python del entorno de YOLO, modelo y, si algo falta, la razón."""
     venv = os.path.expanduser(os.environ.get('YOLO_VENV', '~/.venvs/yolo'))
     python = os.path.join(venv, 'bin', 'python3')
-    modelo = LaunchConfiguration('modelo_yolo').perform(context) or \
+    propio = LaunchConfiguration('modelo_yolo').perform(context)   # acepta ~ y rutas relativas
+    modelo = os.path.abspath(os.path.expanduser(propio)) if propio else \
         os.path.join(share, 'yolo', 'incendio_yolo26n.pt')
     falta = next((f'No se encontró el {que}: {ruta}'
                   for ruta, que in ((python, 'entorno de Python de YOLO'), (modelo, 'modelo YOLO'))
@@ -162,9 +163,10 @@ def detector(context, share):
     if LaunchConfiguration('yolo_activo').perform(context) != 'true':
         return []
     python, modelo, _ = rutas_yolo(context, share)
+    confianza = LaunchConfiguration('confianza_yolo').perform(context)
     return [ExecuteProcess(
         cmd=[python, '-m', 'cuadrirotor_sim.detector_yolo', '--ros-args',
-             '-p', 'use_sim_time:=true', '-p', f'modelo:={modelo}'],
+             '-p', 'use_sim_time:=true', '-p', f'modelo:={modelo}', '-p', f'confianza:={float(confianza)}'],
         output='screen', name='detector_yolo')]
 
 
@@ -333,7 +335,10 @@ def generate_launch_description():
                               description='hover | orbita | busqueda (YOLO26 encuentra el incendio)'),
         DeclareLaunchArgument('x0', default_value='', description='Posición inicial x [m]'),
         DeclareLaunchArgument('y0', default_value='', description='Posición inicial y [m]'),
-        DeclareLaunchArgument('modelo_yolo', default_value='', description='Pesos de YOLO (.pt)'),
+        DeclareLaunchArgument('modelo_yolo', default_value='',
+                              description='Pesos de YOLO (.pt); por omisión yolo/incendio_yolo26n.pt del paquete'),
+        DeclareLaunchArgument('confianza_yolo', default_value='0.35',
+                              description='Confianza mínima para que el detector marque un objeto'),
         DeclareLaunchArgument('yolo', default_value='auto',
                               description='auto | true | false: detector YOLO26 que encuadra el fuego y el '
                                           'humo en la cámara (auto: en toda misión si está instalado)'),

@@ -9,6 +9,14 @@
     radio: 4.0
     omega: 0.3
 
+busqueda_incendio:
+  ros__parameters:
+    # Confianza mínima de una detección de YOLO para usarla en la búsqueda (las
+    # que el detector marca con menos confianza se ven, pero no guían al dron) y
+    # cuántas imágenes seguidas con humo confirman que hay humo.
+    confianza: 0.45
+    confirmar: 3
+
 controlador_pd:
   ros__parameters:
     kp_pos: [4.0, 4.0, 6.0]
